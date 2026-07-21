@@ -1,0 +1,10 @@
+streamlit
+pandas
+matplotlib
+bcrypt
+psycopg2-binary
+openpyxl
+SQLAlchemy
+fastapi
+uvicorn
+pydantic
