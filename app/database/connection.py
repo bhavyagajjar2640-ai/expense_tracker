@@ -67,8 +67,7 @@ def create_database_if_missing(cfg):
 @st.cache_resource
 def get_engine():
     cfg = get_db_config()
-    return create_engine("sqlite:///expense.db")
-    # return create_engine(build_database_url(cfg), future=True, pool_pre_ping=True)
+    return create_engine(build_database_url(cfg), future=True, pool_pre_ping=True)
 
 
 @st.cache_resource
