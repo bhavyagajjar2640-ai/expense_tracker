@@ -163,7 +163,7 @@ def render_dashboard():
         st.warning("No rows match the current filters.")
 
     st.divider()
-    st.subheader("CRUD Operations")
+    st.subheader("Add New Expense")
     with st.form("add_expense_form", clear_on_submit=True):
         form_cols = st.columns(4)
         new_date = form_cols[0].date_input("Date")
@@ -224,9 +224,9 @@ def render_dashboard():
         key="editor",
     )
 
-    action_cols = st.columns(3)
+    action_cols = st.columns(4, vertical_alignment="bottom")
     with action_cols[0]:
-        if st.button("Save Edits to DB"):
+        if st.button("Save Edits to DB", use_container_width=True):
             if current_doc_id is None:
                 st.error("No active document found.")
             else:
@@ -242,7 +242,7 @@ def render_dashboard():
             default=[],
         )
     with action_cols[2]:
-        if st.button("Delete Selected Rows"):
+        if st.button("Delete Selected Rows", use_container_width=True):
             if current_doc_id is None:
                 st.error("No active document found.")
             elif not delete_indexes:
@@ -252,17 +252,18 @@ def render_dashboard():
                 st.session_state.dataframe = remaining
                 st.success("Rows deleted.")
                 st.rerun()
-
-    if latest:
-        file_bytes = bytes(latest["file_bytes"])
-        file_name = latest["filename"]
-        mime = "text/csv" if latest["file_format"] == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        st.download_button(
-            "Download Current Saved File",
-            data=file_bytes,
-            file_name=file_name,
-            mime=mime,
-        )
+    with action_cols[3]:
+        if latest:
+            file_bytes = bytes(latest["file_bytes"])
+            file_name = latest["filename"]
+            mime = "text/csv" if latest["file_format"] == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            st.download_button(
+                "Download Current Saved File",
+                data=file_bytes,
+                file_name=file_name,
+                mime=mime,
+                use_container_width=True,
+            )
 
     st.divider()
     st.subheader("Charts")
@@ -315,8 +316,16 @@ def main():
     init_db()
 
     if "user" not in st.session_state:
-        render_login_signup()
-        st.stop()
+        from app.routers.users import controller
+        user = controller.get("user")
+        user_id = controller.get("user_id")
+        if user and user_id:
+            st.session_state.user = user
+            st.session_state.user_id = user_id
+            st.rerun()
+        else:
+            render_login_signup()
+            st.stop()
 
     render_dashboard()
 
