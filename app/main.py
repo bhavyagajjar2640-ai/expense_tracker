@@ -91,6 +91,8 @@ def render_dashboard():
                         st.session_state.document_id = saved_doc["id"]
                     st.success("Document saved to PostgreSQL.")
                     st.rerun()
+            except ValueError as ve:
+                st.error(str(ve))
             except Exception as exc:
                 st.error(f"Could not read the uploaded file: {exc}")
 
@@ -313,7 +315,11 @@ def render_dashboard():
 
 
 def main():
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        st.error(f"Database connection failed. Please ensure the database is running and credentials are correct.\n\nError details: {exc}")
+        st.stop()
 
     if "user" not in st.session_state:
         from app.routers.users import controller

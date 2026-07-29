@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
 import logging
 import time
+from sqlalchemy.exc import SQLAlchemyError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,9 +48,20 @@ async def log_requests(request: Request, call_next):
         logger.error(f"API Error: {request.method} {request.url.path} - Error: {str(e)} - Time: {process_time:.4f}s", exc_info=True)
         raise e
 
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+    logger.error(f"Database error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal server database error occurred."},
+    )
+
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        logger.error(f"Failed to initialize database on startup: {exc}")
 
 class LoginRequest(BaseModel):
     username: str
@@ -164,59 +177,68 @@ def get_expenses(user_id: int):
 
 @app.post("/api/expenses/{user_id}")
 def create_expense(user_id: int, exp: ExpenseCreate):
-    latest = load_latest_document(user_id)
-    if not latest:
-        df = pd.DataFrame(columns=["Date", "Category", "Amount", "City", "Description"])
-        latest = save_uploaded_document(user_id, DummyUpload(), df, "csv")
-    else:
-        df = records_to_dataframe(latest["data_json"])
-        df = normalize_expense_dataframe(df)
+    try:
+        latest = load_latest_document(user_id)
+        if not latest:
+            df = pd.DataFrame(columns=["Date", "Category", "Amount", "City", "Description"])
+            latest = save_uploaded_document(user_id, DummyUpload(), df, "csv")
+        else:
+            df = records_to_dataframe(latest["data_json"])
+            df = normalize_expense_dataframe(df)
 
-    new_row = {
-        "Date": pd.to_datetime(exp.date),
-        "Category": exp.category,
-        "Amount": exp.amount,
-    }
-    if exp.city is not None: new_row["City"] = exp.city
-    if exp.description is not None: new_row["Description"] = exp.description
+        new_row = {
+            "Date": pd.to_datetime(exp.date),
+            "Category": exp.category,
+            "Amount": exp.amount,
+        }
+        if exp.city is not None: new_row["City"] = exp.city
+        if exp.description is not None: new_row["Description"] = exp.description
 
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    replace_active_document(user_id, latest["id"], df)
-    return {"message": "Expense created successfully"}
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        replace_active_document(user_id, latest["id"], df)
+        return {"message": "Expense created successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.put("/api/expenses/{user_id}/{expense_id}")
 def update_expense(user_id: int, expense_id: int, exp: ExpenseCreate):
-    latest = load_latest_document(user_id)
-    if not latest:
-        raise HTTPException(status_code=404, detail="No document found")
+    try:
+        latest = load_latest_document(user_id)
+        if not latest:
+            raise HTTPException(status_code=404, detail="No document found")
+            
+        df = records_to_dataframe(latest["data_json"])
+        df = normalize_expense_dataframe(df)
         
-    df = records_to_dataframe(latest["data_json"])
-    df = normalize_expense_dataframe(df)
-    
-    if expense_id not in df.index:
-        raise HTTPException(status_code=404, detail="Expense not found")
+        if expense_id not in df.index:
+            raise HTTPException(status_code=404, detail="Expense not found")
+            
+        df.at[expense_id, "Date"] = pd.to_datetime(exp.date)
+        df.at[expense_id, "Category"] = exp.category
+        df.at[expense_id, "Amount"] = exp.amount
+        if exp.city is not None: df.at[expense_id, "City"] = exp.city
+        if exp.description is not None: df.at[expense_id, "Description"] = exp.description
         
-    df.at[expense_id, "Date"] = pd.to_datetime(exp.date)
-    df.at[expense_id, "Category"] = exp.category
-    df.at[expense_id, "Amount"] = exp.amount
-    if exp.city is not None: df.at[expense_id, "City"] = exp.city
-    if exp.description is not None: df.at[expense_id, "Description"] = exp.description
-    
-    replace_active_document(user_id, latest["id"], df)
-    return {"message": "Expense updated successfully"}
+        replace_active_document(user_id, latest["id"], df)
+        return {"message": "Expense updated successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/expenses/{user_id}/{expense_id}")
 def delete_expense(user_id: int, expense_id: int):
-    latest = load_latest_document(user_id)
-    if not latest:
-        raise HTTPException(status_code=404, detail="No document found")
+    try:
+        latest = load_latest_document(user_id)
+        if not latest:
+            raise HTTPException(status_code=404, detail="No document found")
+            
+        df = records_to_dataframe(latest["data_json"])
+        df = normalize_expense_dataframe(df)
         
-    df = records_to_dataframe(latest["data_json"])
-    df = normalize_expense_dataframe(df)
-    
-    if expense_id not in df.index:
-        raise HTTPException(status_code=404, detail="Expense not found")
-        
-    df = df.drop(index=expense_id).reset_index(drop=True)
-    replace_active_document(user_id, latest["id"], df)
-    return {"message": "Expense deleted successfully"}
+        if expense_id not in df.index:
+            raise HTTPException(status_code=404, detail="Expense not found")
+            
+        df = df.drop(index=expense_id).reset_index(drop=True)
+        replace_active_document(user_id, latest["id"], df)
+        return {"message": "Expense deleted successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

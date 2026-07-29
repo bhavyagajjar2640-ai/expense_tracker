@@ -30,10 +30,17 @@ def authenticate_user(username, password):
     return None
 
 
+from sqlalchemy.exc import IntegrityError, DataError, SQLAlchemyError
+
 def register_user(username, password):
     if find_user_by_username(username):
         raise ValueError("User already exists.")
-    repo_create_user(username, hash_password(password))
+    try:
+        repo_create_user(username, hash_password(password))
+    except IntegrityError:
+        raise ValueError("User already exists.")
+    except SQLAlchemyError as exc:
+        raise RuntimeError(f"Database error during registration: {exc}")
 
 
 def infer_file_format(filename):
@@ -49,10 +56,15 @@ def read_uploaded_dataframe(uploaded_file):
     file_format = infer_file_format(uploaded_file.name)
     raw = io.BytesIO(uploaded_file.getvalue())
 
-    if file_format == "csv":
-        df = pd.read_csv(raw)
-    else:
-        df = pd.read_excel(raw)
+    try:
+        if file_format == "csv":
+            df = pd.read_csv(raw)
+        else:
+            df = pd.read_excel(raw)
+    except pd.errors.ParserError:
+        raise ValueError("The uploaded file is not a valid CSV or Excel format.")
+    except Exception as exc:
+        raise ValueError(f"Failed to read file: {exc}")
 
     required = {"Date", "Category", "Amount"}
     missing = sorted(required - set(df.columns))
@@ -119,16 +131,19 @@ def dataframe_to_file_bytes(df, file_format):
 
 
 def save_uploaded_document(user_id, uploaded_file, df, file_format):
-    deactivate_active_documents(user_id)
-    return create_document(
-        user_id=user_id,
-        filename=uploaded_file.name,
-        file_format=file_format,
-        file_bytes=uploaded_file.getvalue(),
-        data_json=dataframe_to_records(df),
-        row_count=len(df),
-        is_active=True,
-    )
+    try:
+        deactivate_active_documents(user_id)
+        return create_document(
+            user_id=user_id,
+            filename=uploaded_file.name,
+            file_format=file_format,
+            file_bytes=uploaded_file.getvalue(),
+            data_json=dataframe_to_records(df),
+            row_count=len(df),
+            is_active=True,
+        )
+    except SQLAlchemyError as exc:
+        raise ValueError(f"Database error while saving document: {exc}")
 
 
 def replace_active_document(user_id, document_id, df):
@@ -136,13 +151,16 @@ def replace_active_document(user_id, document_id, df):
     if not current:
         raise ValueError("Active document not found")
 
-    return update_document_fields(
-        user_id,
-        document_id,
-        data_json=dataframe_to_records(df),
-        file_bytes=dataframe_to_file_bytes(df, current["file_format"]),
-        row_count=len(df),
-    )
+    try:
+        return update_document_fields(
+            user_id,
+            document_id,
+            data_json=dataframe_to_records(df),
+            file_bytes=dataframe_to_file_bytes(df, current["file_format"]),
+            row_count=len(df),
+        )
+    except SQLAlchemyError as exc:
+        raise ValueError(f"Database error while updating document: {exc}")
 
 
 def delete_rows_from_document(user_id, document_id, selected_indexes):

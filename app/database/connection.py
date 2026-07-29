@@ -75,8 +75,18 @@ def get_session_factory():
     return sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, expire_on_commit=False, future=True)
 
 
+from contextlib import contextmanager
+
+@contextmanager
 def get_session():
-    return get_session_factory()()
+    session = get_session_factory()()
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 def init_db():
