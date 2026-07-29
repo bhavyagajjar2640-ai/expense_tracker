@@ -167,24 +167,46 @@ def render_dashboard():
     with st.form("add_expense_form", clear_on_submit=True):
         form_cols = st.columns(4)
         new_date = form_cols[0].date_input("Date")
-        new_category = form_cols[1].text_input("Category")
-        new_amount = form_cols[2].number_input("Amount", min_value=0.0, step=1.0)
-        new_city = form_cols[3].text_input("City") if "City" in df.columns else ""
-        new_description = st.text_input("Description") if "Description" in df.columns else ""
+        
+        # Get unique categories from existing data, plus some defaults
+        existing_categories = []
+        if "Category" in df.columns:
+            existing_categories = df["Category"].dropna().unique().tolist()
+        default_categories = ["Food", "Transport", "Shopping", "Entertainment", "Utilities", "Health", "Other"]
+        all_categories = sorted(list(set(existing_categories + default_categories)))
+        
+        new_category = form_cols[1].selectbox("Category", options=all_categories)
+        new_amount = form_cols[2].number_input("Amount", min_value=0.01, step=1.0)
+        
+        has_city = "City" in df.columns
+        has_desc = "Description" in df.columns
+        new_city = form_cols[3].text_input("City") if has_city else ""
+        new_description = st.text_input("Description") if has_desc else ""
         add_clicked = st.form_submit_button("Add Row")
 
     if add_clicked:
-        if not new_category.strip():
-            st.error("Category is required.")
+        errors = []
+        if not new_category:
+            errors.append("Category is required.")
+        if new_amount <= 0:
+            errors.append("Amount must be greater than 0.")
+        if has_city and not new_city.strip():
+            errors.append("City is required.")
+        if has_desc and not new_description.strip():
+            errors.append("Description is required.")
+            
+        if errors:
+            for e in errors:
+                st.error(e)
         else:
             new_row = {
                 "Date": pd.to_datetime(new_date),
                 "Category": new_category.strip(),
                 "Amount": float(new_amount),
             }
-            if "City" in df.columns:
+            if has_city:
                 new_row["City"] = new_city.strip()
-            if "Description" in df.columns:
+            if has_desc:
                 new_row["Description"] = new_description.strip()
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.dataframe = df
